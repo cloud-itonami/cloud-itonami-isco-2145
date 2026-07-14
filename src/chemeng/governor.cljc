@@ -27,10 +27,13 @@
 (def confidence-floor 0.6)
 
 (defn- certification-attempt? [proposal]
-  (let [{:keys [op payload]} proposal]
-    (and payload
-         (or (string? payload)
-             (re-find #"(?i)(sign|certif|approve|final|sealed)" (str payload))))))
+  (let [{:keys [op payload]} proposal
+        is-cert-op? (#{:issue-certification :sign-off :final-approval} op)]
+    (if is-cert-op?
+      true
+      (and payload
+           (string? payload)
+           (re-find #"(?i)(final\s+cert|sign\s+off|sealed\s+design|professional\s+seal)" (str payload))))))
 
 (defn- hard-violations [{:keys [request proposal]} project facility]
   (let [{:keys [op]} proposal]

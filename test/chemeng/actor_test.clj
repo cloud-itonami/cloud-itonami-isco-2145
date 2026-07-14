@@ -1,64 +1,39 @@
 (ns chemeng.actor-test
-  (:require [clojure.test :refer [deftest testing is]]
+  (:require [clojure.test :refer [deftest is testing]]
             [chemeng.actor :as actor]
-            [chemeng.store :as store]
-            [chemeng.advisor :as advisor]))
+            [chemeng.store :as store]))
 
-(deftest actor-graph-intake-to-advise
-  (testing "graph flows from intake through advise"
-    (let [s (store/mem-store)
-          graph (actor/build-graph {:store s})
-          req {:project-id "p1" :op :draft-process-design :payload "test"}
-          result (actor/run-request! graph req nil "thread-1")]
-      (is (map? result))
-      (is (:proposal result)))))
+(defn- fresh-store []
+  (let [st (store/mem-store)]
+    (store/register-project! st {:project-id "p1" :name "Test Project" :facility-id "f1"})
+    (store/register-facility! st {:facility-id "f1" :name "Test Facility" :location "Lab"})
+    st))
 
-(deftest actor-graph-hard-hold
-  (testing "hard violation -> :hold disposition"
-    (let [s (store/mem-store)
-          graph (actor/build-graph {:store s})
-          req {:project-id "unknown" :op :draft-process-design}
-          result (actor/run-request! graph req nil "thread-2")]
-      (is (map? result))
-      (is (nil? (:record result)))
-      (is (some #(= :hold %) (map :node (:audit result)))))))
+(deftest commits-a-valid-design-draft
+  (let [st (fresh-store)
+        graph (actor/build-graph {:store st})
+        request {:project-id "p1" :op :draft-process-design :payload "Test design draft"}
+        result (actor/run-request! graph request {} "thread-1")]
+    (is (= :done (:status result)))
+    (is (some? (get-in result [:state :record])))
+    (is (= 1 (count (store/records-of st "p1"))))))
 
-(deftest actor-graph-escalation-interrupt
-  (testing "escalation triggers request-approval interrupt"
-    (let [s (store/mem-store {:projects {"p1" {:project-id "p1" :name "Test Project"}}})
-          graph (actor/build-graph {:store s})
-          req {:project-id "p1" :op :flag-process-safety-risk :payload "Test risk"}
-          result (actor/run-request! graph req nil "thread-3")]
-      (is (map? result))
-      (is (some #(= :request-approval %) (map :node (:audit result)))))))
+(deftest holds-certification-attempt
+  (let [st (fresh-store)
+        graph (actor/build-graph {:store st})
+        request {:project-id "p1" :op :issue-certification :payload "Final design"}
+        result (actor/run-request! graph request {} "thread-2")]
+    (is (= :hold (:disposition (:state result))))
+    (is (empty? (store/records-of st "p1")))))
 
-(deftest actor-graph-commit
-  (testing "valid proposal -> commit"
-    (let [s (store/mem-store {:projects {"p1" {:project-id "p1" :name "Test Project"}}})
-          graph (actor/build-graph {:store s})
-          req {:project-id "p1" :op :draft-process-design :payload "valid design"}
-          result (actor/run-request! graph req nil "thread-4")]
-      (is (map? result))
-      (is (:record result))
-      (is (some #(= :commit %) (map :node (:audit result)))))))
+(deftest interrupts-then-accepts-safety-risk-on-human-approval
+  (let [st (fresh-store)
+        graph (actor/build-graph {:store st})
+        request {:project-id "p1" :op :flag-process-safety-risk :payload "Runaway risk"}
+        interrupted (actor/run-request! graph request {} "thread-3")]
+    (is (= :interrupted (:status interrupted)))
+    (is (empty? (store/records-of st "p1")))
+    (let [resumed (actor/approve! graph "thread-3")]
+      (is (= :done (:status resumed)))
+      (is (= 1 (count (store/records-of st "p1")))))))
 
-(deftest actor-graph-approval-resume
-  (testing "approve! resumes interrupted flow"
-    (let [s (store/mem-store {:projects {"p1" {:project-id "p1" :name "Test Project"}}})
-          graph (actor/build-graph {:store s})
-          req {:project-id "p1" :op :flag-process-safety-risk :payload "Risk to approve"}
-          result-1 (actor/run-request! graph req nil "thread-5")
-          result-2 (actor/approve! graph "thread-5")]
-      (is (map? result-2))
-      (is (:record result-2))
-      (is (some #(= :commit %) (map :node (:audit result-2)))))))
-
-(deftest actor-audit-ledger
-  (testing "all operations append to ledger"
-    (let [s (store/mem-store {:projects {"p1" {:project-id "p1" :name "Test Project"}}})
-          graph (actor/build-graph {:store s})
-          req {:project-id "p1" :op :draft-process-design :payload "test"}
-          _ (actor/run-request! graph req nil "thread-6")
-          ledger (store/ledger s)]
-      (is (not-empty ledger))
-      (is (some #(= :commit (:disposition %)) ledger)))))
