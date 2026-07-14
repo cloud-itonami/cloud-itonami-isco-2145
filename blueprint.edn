@@ -1,0 +1,11 @@
+[{:itonami.blueprint/id "cloud-itonami-isco-2145"
+  :itonami.blueprint/name "Chemical Engineers"
+  :itonami.blueprint/isco-08 "2145"
+  :itonami.blueprint/domain :engineering/chemical-process
+  :itonami.blueprint/license "AGPL-3.0-or-later"
+  :itonami.blueprint/social-impact [:process-safety :hazard-management :regulatory-compliance :transparency]
+  :itonami.blueprint/governor :chemical-engineering-governor
+  :itonami.blueprint/robotics false
+  :itonami.blueprint/required-technologies [:identity :forms :dmn :bpmn :audit-ledger]
+  :itonami.blueprint/status :public-oss
+  :db/id -1}]
